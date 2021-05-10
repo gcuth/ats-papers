@@ -22,7 +22,7 @@ We'll get there.
 """
 
 
-def resolve_document_links(wp_info: dict) -> list:
+def construct_document_links(wp_info: dict) -> list:
     """Take a dict of paper metadata; return a list of associated document urls.
 
     Note: this excludes 'attachment' documents, which are resolved separately.
@@ -33,7 +33,32 @@ def resolve_document_links(wp_info: dict) -> list:
     :returns: A list of all resolved document links
 
     """
-    pass
+    document_links = []
+    meeting = wp_info['Meeting_type'] + wp_info['Meeting_number']
+    base = 'https://documents.ats.aq/' + meeting + '/' + wp_info['Abbreviation']
+    pnum = wp_info['Abbreviation'] + str(wpi_info['Number']).zfill(3)  # 0-pad
+    if wp_info['Revision'] > 0:  # a 'rev#' included in filename iff revisions
+        revision = f"rev{wp_info['Revision']}"
+    else:
+        revision = None
+    for country in ['e','s','f','r']:
+        fname = '_'.join([x for x in [meeting, pnum, revision, country] if x])
+        fname += '.' + wp_info['Type']
+        full_path = base + '/' + fname
+        document_links.append(full_path)
+    return document_links
+
+
+def scrape_document_from_link(doc_link):
+    """Take a link and download the associated file as bytes.
+
+    :doc_link: TODO
+    :returns: TODO
+
+    """
+    r = requests.get(doc_link)
+    if r.ok:
+        return r.content
 
 
 def scrape_documents(wp_info: dict, out_dir):
@@ -44,7 +69,25 @@ def scrape_documents(wp_info: dict, out_dir):
     :returns: TODO
 
     """
-    pass
+    doc_links = construct_document_links(wp_info)
+    for doc_link in doc_links:
+        raw_doc = scrape_document_from_link(doc_link)
+        if raw_doc:
+            outpath = construct_document_outpath(out_dir, wp_info, doc_link)
+            with open(outpath, 'w+') as f:
+                f.write(raw_doc)
+
+
+def construct_document_outpath(out_dir, wp_info, doc_link):
+    """Generate a best outpath for saving the actual scraped file.
+
+    :wp_info: TODO
+    :doc_link: TODO
+    :returns: TODO
+
+    """
+    fname = doc_link.split('/')[-1]
+    return PurePath(out_dir).joinpath(fname)
 
 
 def construct_metadata_scrape_path(base_data_path):
@@ -103,24 +146,35 @@ def main(output_path):
     """
     logger = logging.getLogger(__name__)
     logger.info('using environment variables to generate scrape outpath')
+
     absolute_output_path = PurePath(project_dir).joinpath(output_path)
+    
     metadata_outpath = construct_metadata_scrape_path(absolute_output_path)
+    
     logger.info(f'metadata outpath: {metadata_outpath}')
     logger.info('beginning scrape of working papers listing')
     papers = scrape_working_papers_listing(starting_page=1, logger=logger)
-    logger.info(f'saving papers data to file at {metadata_outpath}')
+    logger.info(f'saving papers metadata to file at {metadata_outpath}')
     with open(metadata_outpath, 'w+') as f:
         json.dump(papers, f, indent=2)
     if Path.exists(metadata_outpath):
-        logger.info(f'file now exists at {metadata_outpath}')
+        logger.info(f'metadata file now exists at {metadata_outpath}')
+
+    logger.info(f'beginning collection of underlying paper documents')
+    for paper in papers:
+        logger.info(f"attempting scrape of {paper['Paper_id']} primary docs")
+        scrape_documents(paper, absolute_output_path)
 
 
 if __name__ == '__main__':
-    log_fmt = '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-    logging.basicConfig(level=logging.INFO, format=log_fmt)
-
     # the base directory from which we'll resolve the 'data/raw' path etc.
     project_dir = Path(__file__).resolve().parents[2]
+
+    # setting the log
+    log_path = PurePath(project_dir).joinpath('logs/scrape.log')
+    log_fmt = '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    logging.basicConfig(filename=log_path, level=logging.INFO, format=log_fmt)
+
 
     # find .env automagically by walking up directories until it's found, then
     # load up the .env entries as environment variables
