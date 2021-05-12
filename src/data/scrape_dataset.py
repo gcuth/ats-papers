@@ -1,8 +1,11 @@
 # -*- coding: utf-8 -*-
+import os
 import click
 import logging
 import json
 import requests
+from requests.exceptions import Timeout
+import random
 from datetime import datetime
 from pathlib import Path, PurePath
 from dotenv import find_dotenv, load_dotenv
@@ -13,10 +16,13 @@ This script aims to collect all meeting documents found at:
 
 We do so by scraping iteratively querying the underlying doc database to collect
 paper metadata, then resolving that paper metadata into document links. Queries
-to ats.aq's Doc Database are slow, so this scrape currently takes over an hour.
+to ats.aq's Doc Database are slow, so even the metadata portion of this scrape
+currently takes over an hour.
 
 Note that this script does not currently collect 'Final Reports', which are at
     https://www.ats.aq/devAS/Info/FinalReports
+
+Note also that this script does not currently collect 'attachments'.
 
 We'll get there.
 """
@@ -36,7 +42,7 @@ def construct_document_links(wp_info: dict) -> list:
     document_links = []
     meeting = wp_info['Meeting_type'] + wp_info['Meeting_number']
     base = 'https://documents.ats.aq/' + meeting + '/' + wp_info['Abbreviation']
-    pnum = wp_info['Abbreviation'] + str(wpi_info['Number']).zfill(3)  # 0-pad
+    pnum = wp_info['Abbreviation'] + str(wp_info['Number']).zfill(3)  # zero pad
     if wp_info['Revision'] > 0:  # a 'rev#' included in filename iff revisions
         revision = f"rev{wp_info['Revision']}"
     else:
@@ -49,19 +55,25 @@ def construct_document_links(wp_info: dict) -> list:
     return document_links
 
 
-def scrape_document_from_link(doc_link):
+def scrape_document_from_link(doc_link, logger, timeout=(2,5)):
     """Take a link and download the associated file as bytes.
 
     :doc_link: TODO
+    :logger: TODO
     :returns: TODO
 
     """
-    r = requests.get(doc_link)
-    if r.ok:
-        return r.content
+    logger.info(f"requesting {doc_link}")
+    try:
+        r = requests.get(doc_link, timeout=timeout)
+        logger.info(f"{doc_link} returned status {r.status_code}")
+        if r.ok:
+            return r.content
+    except Timeout as e:
+        logger.info(f"{doc_link} scrape attempt timed-out after {timeout} with exception: {e}")
 
 
-def scrape_documents(wp_info: dict, out_dir):
+def scrape_documents(wp_info: dict, out_dir, logger, ignore_existing=True):
     """Take raw info about a working paper, generate doc urls, scrape the files.
 
     :wp_info: A dict of some metadat about a working paper.
@@ -69,13 +81,28 @@ def scrape_documents(wp_info: dict, out_dir):
     :returns: TODO
 
     """
+    logger.info(f"constructing document links for {wp_info['Paper_id']}")
     doc_links = construct_document_links(wp_info)
+    if ignore_existing:
+        logger.info(f"filtering document links for already-scraped papers")
+        logger.info(f"constructed document links before filter: {len(doc_links)}")
+        outpaths = [(doc_link, construct_document_outpath(out_dir, wp_info, doc_link)) for doc_link in doc_links]
+        logger.info(f"target outpaths: {[str(x[1]) for x in outpaths]}")
+        existing = [os.path.join(out_dir, f) for f in os.listdir(out_dir)]
+        logger.info(f"already collected outpaths: {[str(x[1]) for x in outpaths if str(x[1]) in existing]}")
+        doc_links = [x[0] for x in outpaths if str(x[1]) not in existing]
+        logger.info(f"constructed document links after filter: {len(doc_links)}")
     for doc_link in doc_links:
-        raw_doc = scrape_document_from_link(doc_link)
+        logger.info(f"attempting to scrape file at {doc_link}")
+        raw_doc = scrape_document_from_link(doc_link, logger)
         if raw_doc:
+            logger.info(f"successful scrape of {doc_link}")
             outpath = construct_document_outpath(out_dir, wp_info, doc_link)
-            with open(outpath, 'w+') as f:
+            logger.info(f"writing file scraped from {doc_link} to {outpath}")
+            with open(outpath, 'wb+') as f:
                 f.write(raw_doc)
+        else:
+            logger.info(f"failed scrape of {doc_link}")
 
 
 def construct_document_outpath(out_dir, wp_info, doc_link):
@@ -127,7 +154,9 @@ def scrape_working_papers_listing(starting_page, logger):
     papers = []
     while url is not None:
         logger.info(f"attempting to scrape {url}")
-        data = json.loads(requests.get(url).text)
+        r = requests.get(url)
+        logger.info(f"got {r.status_code} for {url}")
+        data = json.loads(r.text)
         papers += data['payload']
         logger.info(f"total {len(papers)} listings collected so far")
         next_page = data['pager']['next']
@@ -148,33 +177,42 @@ def main(output_path):
     logger.info('using environment variables to generate scrape outpath')
 
     absolute_output_path = PurePath(project_dir).joinpath(output_path)
-    
-    metadata_outpath = construct_metadata_scrape_path(absolute_output_path)
-    
-    logger.info(f'metadata outpath: {metadata_outpath}')
-    logger.info('beginning scrape of working papers listing')
-    papers = scrape_working_papers_listing(starting_page=1, logger=logger)
-    logger.info(f'saving papers metadata to file at {metadata_outpath}')
-    with open(metadata_outpath, 'w+') as f:
-        json.dump(papers, f, indent=2)
-    if Path.exists(metadata_outpath):
-        logger.info(f'metadata file now exists at {metadata_outpath}')
 
+    existing_metadata_files = [os.path.join(absolute_output_path, f) for f in os.listdir(absolute_output_path) if f.endswith('.json')]
+    if existing_metadata_files:
+        logger.info(f'{len(existing_metadata_files)} existing metadata files found')
+        logger.info(f'reading {existing_metadata_files[-1]}')
+        with open(existing_metadata_files[-1], 'r') as f:
+            papers = json.load(f)
+    else:
+        logger.info(f'no existing metadata scrape; beginning')
+        metadata_outpath = construct_metadata_scrape_path(absolute_output_path)
+        logger.info(f'best metadata outpath: {metadata_outpath}')
+        logger.info('beginning scrape of working papers listing')
+        papers = scrape_working_papers_listing(starting_page=1, logger=logger)
+        logger.info(f'saving papers metadata to file at {metadata_outpath}')
+        with open(metadata_outpath, 'w+') as f:
+            json.dump(papers, f, indent=2)
+        if os.path.exists(metadata_outpath):
+            logger.info(f'metadata file now exists at {metadata_outpath}')
     logger.info(f'beginning collection of underlying paper documents')
-    for paper in papers:
-        logger.info(f"attempting scrape of {paper['Paper_id']} primary docs")
-        scrape_documents(paper, absolute_output_path)
-
+    random.shuffle(papers) # shuffle in place
+    for i, paper in enumerate(papers):
+        try:
+            logger.info(f"attempting scrape of paper {paper['Paper_id']} ({i+1}/{len(papers)})")
+            scrape_documents(paper, absolute_output_path, logger=logger)
+        except Exception as e:
+            logger.info(f"attempted scrape of paper {paper['Paper_id']} failed with {e}")
 
 if __name__ == '__main__':
     # the base directory from which we'll resolve the 'data/raw' path etc.
     project_dir = Path(__file__).resolve().parents[2]
 
     # setting the log
+    os.makedirs(PurePath(project_dir).joinpath('logs'), exist_ok=True)
     log_path = PurePath(project_dir).joinpath('logs/scrape.log')
     log_fmt = '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
     logging.basicConfig(filename=log_path, level=logging.INFO, format=log_fmt)
-
 
     # find .env automagically by walking up directories until it's found, then
     # load up the .env entries as environment variables
