@@ -10,3 +10,4 @@ flake8
 requests
 python-dotenv>=0.5.1
 pypandoc
+pdftotext
