@@ -8,12 +8,16 @@ from dotenv import find_dotenv, load_dotenv
 
 
 
-
-
-
 @click.command()
-@click.argument('input_dir', type=click.Path(exists=True))
-@click.argument('output_dir', type=click.Path())
+@click.argument('input_dir',
+                type=click.Path(exists=True,
+                                file_okay=False,
+                                dir_okay=True,
+                                readable=True,
+                                resolve_path=True),
+                help='Path to raw scrape data.')
+@click.argument('output_dir',
+                help='Path to save processed data.')
 def main(input_dir, output_dir):
     """ Runs data processing scripts to turn raw data from (../raw) into
         cleaned data ready to be analyzed (saved in ../processed).
