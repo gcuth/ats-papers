@@ -27,6 +27,32 @@ Note also that this script does not currently collect 'attachments'.
 We'll get there.
 """
 
+def load_all_metadata(data_dir, logger) -> list:
+    """Load all available paper metadata from files in data_dir.
+
+    :data_dir: TODO
+    :returns: TODO
+
+    """
+    papers = []
+    files = [os.path.join(data_dir, f) for f in os.listdir(data_dir)]
+    logger.info(f'{len(files)} total files found in {data_dir}')
+    all_json = [f for f in files if f.endswith('.json')]
+    logger.info(f'{len(all_json)} json files found in {data_dir}')
+    meta = [f for f in all_json if 'papers_metadata' in f]
+    logger.info(f'{len(meta)} existing metadata files found in {data_dir}')
+    if meta:
+        for meta_path in meta:
+            with open(meta_path, 'r') as f:
+                logger.info(f'reading metadata from {meta_path}')
+                metadata = json.load(f)
+                logger.info(f'{len(metadata)} papers found in {meta_path}')
+                papers += metadata
+    # filter for unique entries (using workaround because dicts aren't hashable)
+    dedupe = [json.loads(i) for i in set(json.dumps(p, sort_keys=True) for p in papers)]
+    logger.info(f'metadata for {len(dedupe)} unique papers found in {data_dir}')
+    return papers
+
 
 def construct_document_links(wp_info: dict) -> list:
     """Take a dict of paper metadata; return a list of associated document urls.
@@ -169,22 +195,19 @@ def scrape_working_papers_listing(starting_page, logger):
 
 
 @click.command()
-@click.argument('output_path', type=click.Path(exists=True))
-def main(output_path):
+@click.argument('output_dir', type=click.Path(exists=True),
+                help='Path to save scraped treaty data.')
+def main(output_dir):
     """ Runs data scraping scripts to populate raw data (../raw).
     """
     logger = logging.getLogger(__name__)
     logger.info('using environment variables to generate scrape outpath')
 
-    absolute_output_path = PurePath(project_dir).joinpath(output_path)
+    absolute_output_dir = PurePath(project_dir).joinpath(output_dir)
 
-    existing_metadata_files = [os.path.join(absolute_output_path, f) for f in os.listdir(absolute_output_path) if f.endswith('.json')]
-    if existing_metadata_files:
-        logger.info(f'{len(existing_metadata_files)} existing metadata files found')
-        logger.info(f'reading {existing_metadata_files[-1]}')
-        with open(existing_metadata_files[-1], 'r') as f:
-            papers = json.load(f)
-    else:
+    papers = load_all_metadata(absolute_output_dir, logger)
+
+    if not papers:  # if no metadata found, scrape it all from web
         logger.info(f'no existing metadata scrape; beginning')
         metadata_outpath = construct_metadata_scrape_path(absolute_output_path)
         logger.info(f'best metadata outpath: {metadata_outpath}')
@@ -193,16 +216,18 @@ def main(output_path):
         logger.info(f'saving papers metadata to file at {metadata_outpath}')
         with open(metadata_outpath, 'w+') as f:
             json.dump(papers, f, indent=2)
-        if os.path.exists(metadata_outpath):
+        if os.path.exists(str(metadata_outpath)):
             logger.info(f'metadata file now exists at {metadata_outpath}')
+
     logger.info(f'beginning collection of underlying paper documents')
-    random.shuffle(papers) # shuffle in place
+    random.shuffle(papers)  # shuffle in place
     for i, paper in enumerate(papers):
         try:
-            logger.info(f"attempting scrape of paper {paper['Paper_id']} ({i+1}/{len(papers)})")
-            scrape_documents(paper, absolute_output_path, logger=logger)
+            logger.info(f"attempting scrape of paper ({i+1} of {len(papers)})")
+            logger.info(f"paper id: {paper['Paper_id']}")
+            scrape_documents(paper, absolute_output_dir, logger=logger)
         except Exception as e:
-            logger.info(f"attempted scrape of paper {paper['Paper_id']} failed with {e}")
+            logger.info(f"attempted scrape of {paper['Paper_id']} failed: {e}")
 
 if __name__ == '__main__':
     # the base directory from which we'll resolve the 'data/raw' path etc.
