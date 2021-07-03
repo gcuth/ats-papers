@@ -25,13 +25,14 @@ requirements: test_environment
 	$(PYTHON_INTERPRETER) -m pip install -U pip setuptools wheel
 	$(PYTHON_INTERPRETER) -m pip install -r requirements.txt
 
-## Scrape data from web
+## Scrape raw data from web
 scrape: requirements
-	$(PYTHON_INTERPRETER) src/data/scrape_dataset.py data/raw
+	$(PYTHON_INTERPRETER) src/data/scrape_document_dataset.py data/raw/documents
 
-## Make Dataset
+## Make Dataset (converting raw documents to a single file, converting to extract text as necessary)
 data: requirements
-	$(PYTHON_INTERPRETER) src/data/make_dataset.py data/raw data/processed
+	$(PYTHON_INTERPRETER) src/data/make_document_dataset.py data/raw/documents data/interim/documents
+	$(PYTHON_INTERPRETER) src/features/add_document_features.py data/raw/documents data/interim/documents data/processed/documents
 
 ## Delete all compiled Python files
 clean:

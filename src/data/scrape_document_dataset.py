@@ -195,8 +195,7 @@ def scrape_working_papers_listing(starting_page, logger):
 
 
 @click.command()
-@click.argument('output_dir', type=click.Path(exists=True),
-                help='Path to save scraped treaty data.')
+@click.argument('output_dir', type=click.Path(exists=True))
 def main(output_dir):
     """ Runs data scraping scripts to populate raw data (../raw).
     """
@@ -209,7 +208,7 @@ def main(output_dir):
 
     if not papers:  # if no metadata found, scrape it all from web
         logger.info(f'no existing metadata scrape; beginning')
-        metadata_outpath = construct_metadata_scrape_path(absolute_output_path)
+        metadata_outpath = construct_metadata_scrape_path(absolute_output_dir)
         logger.info(f'best metadata outpath: {metadata_outpath}')
         logger.info('beginning scrape of working papers listing')
         papers = scrape_working_papers_listing(starting_page=1, logger=logger)
@@ -235,7 +234,7 @@ if __name__ == '__main__':
 
     # setting the log
     os.makedirs(PurePath(project_dir).joinpath('logs'), exist_ok=True)
-    log_path = PurePath(project_dir).joinpath('logs/scrape.log')
+    log_path = PurePath(project_dir).joinpath('logs/scrape_documents.log')
     log_fmt = '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
     logging.basicConfig(filename=log_path, level=logging.INFO, format=log_fmt)
 
