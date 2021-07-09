@@ -94,6 +94,8 @@ def join_metadata_to_document_df(df, metadata, logger):
     df['meeting_number'] = [m.get('Meeting_number') for m in matching_metadata]
     logger.info(f'Adding meeting names')
     df['meeting_name'] = [m.get('Meeting_name') for m in matching_metadata]
+    logger.info(f'Adding party names')
+    df['parties'] = [', '.join([name for name in [p.get('Name','') for p in m.get('Parties',[])] if len(name)>0]) for m in matching_metadata]
     return df
 
 
@@ -172,6 +174,13 @@ def main(raw_data_dir, interim_data_dir, output_dir):
     logger.info(f'saving final dataframe to {final_df_outpath}')
     full_doc_df.to_pickle(final_df_outpath)
 
+    final_df_outpath = str(final_df_outpath).replace('.pkl','.csv')
+    logger.info(f'saving final dataframe to {final_df_outpath}')
+    full_doc_df.to_csv(final_df_outpath)
+
+    final_df_outpath = final_df_outpath.replace('.csv','.xlsx')
+    logger.info(f'saving final dataframe to {final_df_outpath}')
+    full_doc_df.to_excel(final_df_outpath)
 
 if __name__ == '__main__':
     # not used in this stub but often useful for finding various files

@@ -13,3 +13,4 @@ pypandoc
 pdftotext
 numpy
 pandas
+openpyxl
