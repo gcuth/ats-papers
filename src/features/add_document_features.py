@@ -15,6 +15,24 @@ from pathlib import Path, PurePath
 from dotenv import find_dotenv, load_dotenv
 
 
+def get_fnames_from_meta_dict(wp_info):
+    """
+    docstring
+    """
+    fnames = []
+    meeting = wp_info['Meeting_type'] + wp_info['Meeting_number']
+    pnum = wp_info['Abbreviation'] + str(wp_info['Number']).zfill(3)  # zero pad
+    if wp_info['Revision'] > 0:  # a 'rev#' included in filename iff revisions
+        revision = f"rev{wp_info['Revision']}"
+    else:
+        revision = None
+    for country in ['e','s','f','r']:
+        fname = '_'.join([x for x in [meeting, pnum, revision, country] if x])
+        fname += '.' + wp_info['Type']
+        fnames.append(fname)
+    return fnames
+
+
 def load_all_metadata(data_dir, logger) -> list:
     """Load all available paper metadata from files in data_dir.
 
@@ -44,7 +62,7 @@ def load_all_metadata(data_dir, logger) -> list:
     return papers
 
 
-def join_metadata_to_document_df(document_df, metadata):
+def join_metadata_to_document_df(df, metadata, logger):
     """Take a raw document df and join metadata for each document row.
 
     :document_df: TODO
@@ -52,10 +70,34 @@ def join_metadata_to_document_df(document_df, metadata):
     :returns: TODO
 
     """
-    pass
+    logger.info(f'Matching metadata for all {df.shape[0]} lines in dataframe')
+    matching_metadata = []
+    for i, row in df.iterrows():
+        logger.info(f'Collecting metadata for row ({i+1}/{df.shape[0]})')
+        meta = get_best_matching_metadata(row, metadata, logger)
+        logger.info(f'Successfully collected metadata for row ({i+1}/{df.shape[0]})')
+        matching_metadata.append(meta)
+        logger.info(f'{len([m for m in matching_metadata if m != {}])} now collected.')
+    logger.info(f'Adding meeting years')
+    df['meeting_year'] = [m.get('Meeting_year') for m in matching_metadata]
+    logger.info(f'Adding paper names')
+    df['paper_name'] = [m.get('Name') for m in matching_metadata]
+    logger.info(f'Adding paper IDs')
+    df['paper_id'] = [m.get('Paper_id') for m in matching_metadata]
+    logger.info(f'Adding paper type IDs')
+    df['paper_type_id'] = [m.get('Pap_type_id') for m in matching_metadata]
+    logger.info(f'Adding meeting types')
+    df['meeting_type'] = [m.get('Meeting_type') for m in matching_metadata]
+    logger.info(f'Adding meeting IDs')
+    df['meeting_id'] = [m.get('Meeting_id') for m in matching_metadata]
+    logger.info(f'Adding meeting numbers')
+    df['meeting_number'] = [m.get('Meeting_number') for m in matching_metadata]
+    logger.info(f'Adding meeting names')
+    df['meeting_name'] = [m.get('Meeting_name') for m in matching_metadata]
+    return df
 
 
-def get_best_matching_metadata(document_row, metadata):
+def get_best_matching_metadata(document_row, metadata, logger):
     """TODO: Docstring for get_matching_metadata.
 
     :document_row: TODO
@@ -63,14 +105,29 @@ def get_best_matching_metadata(document_row, metadata):
     :returns: TODO
 
     """
-    meta = [m for m in metadata if m['Abbreviation'] == document_row['paper_type_abbreviation']]
-    meta = [m for m in meta if m['Meeting_type'] in document_row['meeting']]
-    meta = [m for m in meta if m['Meeting_type'] in document_row['meeting']]
-    meta = [m for m in meta if m['Number'] == int(document_row['paper_number'].lstrip("0"))]
+    logger.info(f'Starting with a metadata list totalling {len(metadata)} items')
+    meta = [m for m in metadata if str(m['Type']) == document_row['extension']]
+    logger.info(f'After filtering metadata list for doc extension: {len(meta)} items')
+    meta = [m for m in meta if m['Abbreviation'] == document_row['paper_type_abbreviation']]
+    logger.info(f'After filtering metadata list for paper type abbreviation: {len(meta)} items')
+    meta = [m for m in meta if str(m['Number']) == document_row['paper_number'].lstrip("0")]
+    logger.info(f'After filtering metadata list for paper number: {len(meta)} items')
+    meta = [m for m in meta if str(m['Meeting_type']) in document_row['meeting']]
+    logger.info(f'After filtering metadata list for meeting type: {len(meta)} items')
+    meta = [m for m in meta if m['Revision'] == document_row['paper_revision']]
+    logger.info(f'After filtering metadata list for paper revision number: {len(meta)} items')
+    meta = [m for m in meta if document_row['filename'] in get_fnames_from_meta_dict(m)]
+    logger.info(f'After filtering metadata list for matching filename: {len(meta)} items')
     if len(meta) == 1:
+        logger.info(f'Exactly one matching metadata dictionary found')
         return meta[0]
+    elif len(meta) > 1:
+        logger.info(f'Error: Found too many matching metadata files: {len(meta)}')
+        time.sleep(1)
+        return {}
     else:
-        return None
+        logger.info(f'Error: Failed to find a matching metadata dictionary!')
+        return {}
 
 @click.command()
 @click.argument('raw_data_dir', # directory containing raw documents (and metadata)
@@ -90,7 +147,7 @@ def main(raw_data_dir, interim_data_dir, output_dir):
 
     final_df_outpath = PurePath(project_dir).joinpath(output_dir).joinpath('ats_documents.pkl')
     logger.info(f'planned outpath for final dataframe: {final_df_outpath}')
-    
+
     if os.path.isdir(interim_data_dir):
         logger.info(f'{interim_data_dir} appears to be a directory; checking default filenames')
         raw_documents_df_path = PurePath(project_dir).joinpath(interim_data_dir).joinpath('raw_documents.pkl')
@@ -105,8 +162,15 @@ def main(raw_data_dir, interim_data_dir, output_dir):
     print(raw_doc_df.shape)
     print(raw_doc_df.head())
 
-    # print(raw_doc_df.iloc[0])
-    get_best_matching_metadata(raw_doc_df.iloc[0], metadata)
+    logger.info(f'joining metadata to document dataframe')
+    full_doc_df = join_metadata_to_document_df(raw_doc_df, metadata, logger)
+
+    print(full_doc_df.shape)
+    print(full_doc_df.head())
+
+    logger.info(f'processed dataframe of documents has shape: {full_doc_df.shape}')
+    logger.info(f'saving final dataframe to {final_df_outpath}')
+    full_doc_df.to_pickle(final_df_outpath)
 
 
 if __name__ == '__main__':

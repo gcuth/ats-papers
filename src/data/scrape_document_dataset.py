@@ -54,6 +54,12 @@ def load_all_metadata(data_dir, logger) -> list:
     return papers
 
 
+def construct_download_fname(wp_info: dict) -> list:
+    """
+    docstring
+    """
+    pass
+
 def construct_document_links(wp_info: dict) -> list:
     """Take a dict of paper metadata; return a list of associated document urls.
 

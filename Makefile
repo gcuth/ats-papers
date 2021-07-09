@@ -5,7 +5,7 @@
 #################################################################################
 
 PROJECT_DIR := $(shell dirname $(realpath $(lastword $(MAKEFILE_LIST))))
-BUCKET = ats_papers
+BUCKET = ats-papers
 PROFILE = default
 PROJECT_NAME = ats-papers
 PYTHON_INTERPRETER = python3
