@@ -28,10 +28,11 @@ requirements: test_environment
 ## Scrape raw data from web
 scrape: requirements
 	$(PYTHON_INTERPRETER) src/data/scrape_document_dataset.py data/raw/documents
+	$(PYTHON_INTERPRETER) src/data/scrape_measures_dataset.py data/raw/measures
 
 ## Make Dataset (converting raw documents to a single file, converting to extract text as necessary)
 data: requirements
-	# $(PYTHON_INTERPRETER) src/data/make_document_dataset.py data/raw/documents data/interim/documents
+	$(PYTHON_INTERPRETER) src/data/make_document_dataset.py data/raw/documents data/interim/documents
 	$(PYTHON_INTERPRETER) src/features/add_document_features.py data/raw/documents data/interim/documents data/processed/documents
 
 ## Delete all compiled Python files

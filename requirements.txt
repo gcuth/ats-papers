@@ -14,3 +14,4 @@ pdftotext
 numpy
 pandas
 openpyxl
+lxml
