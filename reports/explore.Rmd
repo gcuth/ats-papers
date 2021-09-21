@@ -1,0 +1,21 @@
+---
+title: ""
+subtitle: ""
+author: ""
+---
+
+```{r message=FALSE, warning=FALSE, echo=FALSE}
+library(dplyr)
+library(readr)
+library(here)
+
+documents_path <- file.path(here(), 'data', 'processed', 'documents',
+                            'ats_documents.csv')
+
+measures_path <- file.path(here(), 'data', 'processed', 'documents',
+                           'ats_measures.csv')
+
+documents_df <- read_csv(documents_path)
+measures_df <- read_csv(measures_path)
+```
+
